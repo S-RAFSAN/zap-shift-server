@@ -244,6 +244,135 @@ app.post('/parcels', async (req, res) => {
     }
 });
 
+// Delete parcel by ID
+app.delete('/parcels/:id', async (req, res) => {
+    try {
+        console.log(`DELETE /parcels/${req.params.id} - Request received`);
+        
+        if (!parcelsCollection) {
+            console.log('Database not connected');
+            return res.status(503).send({ error: 'Database not connected' });
+        }
+        
+        const parcelId = req.params.id;
+        console.log('Parcel ID to delete:', parcelId);
+        
+        // Validate ID format
+        const { ObjectId } = require('mongodb');
+        if (!ObjectId.isValid(parcelId)) {
+            console.log('Invalid ID format:', parcelId);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            return res.status(400).json({ 
+                error: 'Invalid parcel ID format',
+                receivedId: parcelId
+            });
+        }
+        
+        // Delete the parcel
+        const deleteQuery = { _id: new ObjectId(parcelId) };
+        console.log('Delete query:', deleteQuery);
+        
+        const result = await parcelsCollection.deleteOne(deleteQuery);
+        console.log('Delete result:', result);
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        
+        if (result.deletedCount === 0) {
+            console.log('Parcel not found with ID:', parcelId);
+            return res.status(404).json({ 
+                error: 'Parcel not found',
+                parcelId: parcelId
+            });
+        }
+        
+        console.log('Parcel deleted successfully:', parcelId);
+        res.status(200).json({
+            message: 'Parcel deleted successfully',
+            deletedId: parcelId,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        console.error('Error deleting parcel:', error);
+        console.error('Error stack:', error.stack);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.status(500).json({ 
+            error: 'Failed to delete parcel', 
+            message: error.message
+        });
+    }
+});
+
+// Delete parcel by ID (alternative - accepts ID in request body)
+app.delete('/parcels', async (req, res) => {
+    try {
+        console.log('DELETE /parcels - Request received with body:', req.body);
+        
+        if (!parcelsCollection) {
+            console.log('Database not connected');
+            return res.status(503).send({ error: 'Database not connected' });
+        }
+        
+        const { ObjectId } = require('mongodb');
+        
+        // Get ID from body or query
+        const parcelId = req.body.id || req.body._id || req.query.id;
+        
+        if (!parcelId) {
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            return res.status(400).json({ 
+                error: 'Parcel ID is required',
+                hint: 'Provide id in request body or use DELETE /parcels/:id'
+            });
+        }
+        
+        console.log('Parcel ID to delete:', parcelId);
+        
+        // Validate ID format
+        if (!ObjectId.isValid(parcelId)) {
+            console.log('Invalid ID format:', parcelId);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            return res.status(400).json({ 
+                error: 'Invalid parcel ID format',
+                receivedId: parcelId
+            });
+        }
+        
+        // Delete the parcel
+        const deleteQuery = { _id: new ObjectId(parcelId) };
+        console.log('Delete query:', deleteQuery);
+        
+        const result = await parcelsCollection.deleteOne(deleteQuery);
+        console.log('Delete result:', result);
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        
+        if (result.deletedCount === 0) {
+            console.log('Parcel not found with ID:', parcelId);
+            return res.status(404).json({ 
+                error: 'Parcel not found',
+                parcelId: parcelId
+            });
+        }
+        
+        console.log('Parcel deleted successfully:', parcelId);
+        res.status(200).json({
+            message: 'Parcel deleted successfully',
+            deletedId: parcelId,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        console.error('Error deleting parcel:', error);
+        console.error('Error stack:', error.stack);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.status(500).json({ 
+            error: 'Failed to delete parcel', 
+            message: error.message
+        });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
