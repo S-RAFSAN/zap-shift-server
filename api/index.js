@@ -1,8 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const Stripe = require('stripe');
 
 const app = express();
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // Middleware - MUST be before routes
 // Configure CORS to allow requests from frontend
@@ -12,6 +14,25 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
+
+// Stripe webhook - must use raw body for signature verification (before express.json())
+app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+        return res.status(503).json({ error: 'Stripe not configured' });
+    }
+    const sig = req.headers['stripe-signature'];
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+    if (event.type === 'payment_intent.succeeded') {
+        const paymentIntent = event.data.object;
+        console.log('Payment succeeded:', paymentIntent.id, paymentIntent.metadata);
+    }
+    res.json({ received: true });
+});
 
 app.use(express.json());
 
@@ -138,6 +159,33 @@ app.get('/health', async (req, res) => {
     }
 });
 
+// Create PaymentIntent (Stripe)
+app.post('/create-payment-intent', async (req, res) => {
+    try {
+        if (!stripe) {
+            return res.status(503).json({ error: 'Stripe not configured. Set STRIPE_SECRET_KEY in env' });
+        }
+        const { amount, currency = 'usd', metadata = {} } = req.body;
+        if (!amount || amount < 50) {
+            return res.status(400).json({ error: 'Amount is required (minimum 50 cents)' });
+        }
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: Math.round(amount),
+            currency: currency.toLowerCase(),
+            automatic_payment_methods: { enabled: true },
+            metadata
+        });
+        res.setHeader('Content-Type', 'application/json');
+        res.status(200).json({
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id
+        });
+    } catch (error) {
+        console.error('Stripe error:', error);
+        res.status(500).json({ error: 'Failed to create payment intent', message: error.message });
+    }
+});
+
 // Test endpoint
 app.get('/parcels/test', (req, res) => {
     const testData = [
@@ -194,6 +242,41 @@ app.get('/parcels', async (req, res) => {
     } catch (error) {
         console.error('Error fetching parcels:', error);
         res.status(500).json({ error: 'Failed to fetch parcels', message: error.message });
+    }
+});
+
+// Get parcel by ID
+app.get('/parcels/:id', async (req, res) => {
+    try {
+        const { collection } = await connectToDatabase();
+
+        const parcelId = req.params.id;
+
+        if (!ObjectId.isValid(parcelId)) {
+            return res.status(400).json({
+                error: 'Invalid parcel ID format',
+                receivedId: parcelId
+            });
+        }
+
+        const parcel = await collection.findOne({ _id: new ObjectId(parcelId) });
+
+        if (!parcel) {
+            return res.status(404).json({
+                error: 'Parcel not found',
+                parcelId: parcelId
+            });
+        }
+
+        res.setHeader('Content-Type', 'application/json');
+        res.status(200).json({
+            ...parcel,
+            _id: parcel._id.toString(),
+            id: parcel._id.toString()
+        });
+    } catch (error) {
+        console.error('Error fetching parcel:', error);
+        res.status(500).json({ error: 'Failed to fetch parcel', message: error.message });
     }
 });
 
